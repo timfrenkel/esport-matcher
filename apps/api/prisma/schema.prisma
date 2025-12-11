@@ -1,0 +1,387 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//
+// ENUMS
+//
+
+enum UserRole {
+  PLAYER
+  TEAM
+  ADMIN
+}
+
+enum ProfileVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum OpenPositionStatus {
+  OPEN
+  CLOSED
+  FILLED
+}
+
+enum ContactRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+//
+// USER & PROFILE-MODELLE
+//
+
+model User {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  email    String @unique
+  password String
+
+  role UserRole
+
+  playerProfile PlayerProfile?
+  teamProfile   TeamProfile?
+
+  notifications           Notification[]
+  contactRequestsSent     ContactRequest[] @relation("ContactRequestsFrom")
+  contactRequestsReceived ContactRequest[] @relation("ContactRequestsTo")
+}
+
+model PlayerProfile {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Anzeigename (z. B. "Tim", "NoAimNoBrain")
+  displayName String
+
+  // Region / Server (z. B. "EUW", "NA", "EU")
+  region String?
+
+  // Timezone (z. B. "Europe/Berlin")
+  timezone String?
+
+  // Sprachen als String-Array (z. B. ["de", "en"])
+  languages String[]
+
+  // Kurzbeschreibung / About me
+  bio String?
+
+  // Pro-/Ambitions-Level (z. B. "pro", "semi", "casual")
+  level String  @default("semi")
+  isPro Boolean @default(false)
+
+  // Präferenzen für gesuchte Teams (optional)
+  lookingForRole  String?
+  lookingForLevel String?
+
+  visibility ProfileVisibility @default(PUBLIC)
+
+  gameProfiles PlayerGameProfile[]
+  clips        Clip[]
+  posts        Post[]
+
+  // 👇 NEU: Gegenrelation zu PositionApplication.player
+  positionApplications PositionApplication[]
+
+  contactRequestsReceived ContactRequest[] @relation("ContactRequestsToPlayer")
+}
+
+model TeamProfile {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  name        String
+  tag         String?
+  region      String?
+  level       String  @default("CASUAL")
+  isPro       Boolean @default(false) // kannst du später entfernen, wenn DB clean
+  bio         String?
+  description String?
+
+  visibility ProfileVisibility @default(PUBLIC)
+
+  openPositions OpenPosition[] // (oder wie du es ursprünglich hattest)
+
+  contactRequestsReceived ContactRequest[]  @relation("ContactRequestsToTeam")
+  teamGameProfiles        TeamGameProfile[]
+  clips                   Clip[]
+  posts                   Post[]
+}
+
+//
+// GAMES, ROLLEN & PROFILES
+//
+
+model Game {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  code String @unique
+  name String
+
+  // optional: JSON-Schema oder zusätzliche Infos zum Ranking
+  rankSchema Json?
+
+  roles              GameRole[]
+  playerGameProfiles PlayerGameProfile[]
+  teamGameProfiles   TeamGameProfile[]
+
+  // Back-Relation zu GameRank
+  ranks         GameRank[]
+  openPositions OpenPosition[]
+  clips         Clip[]
+}
+
+model GameRole {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  // z. B. "TOP", "JUNGLE", "DUELIST"
+  code String
+  name String
+
+  // 👇 Relation zu PlayerGameProfile.primaryRole
+  playerPrimaryProfiles PlayerGameProfile[] @relation("PlayerPrimaryRole")
+
+  // 👇 Relation zu TeamGameProfile.primaryRole
+  teamPrimaryProfiles TeamGameProfile[] @relation("TeamPrimaryRole")
+
+  // 👇 Relation zu OpenPosition.role
+  teamOpenPositions OpenPosition[] @relation("OpenPositionRole")
+
+  // Back-Relation zu GameRank (für rollen-spezifische Ranks, falls genutzt)
+  ranks GameRank[]
+
+  @@unique([gameId, code])
+}
+
+model GameRank {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  // optional: rank nur für bestimmte Rolle (z. B. Support/Mid-spezifische Dinge)
+  roleId String?
+  role   GameRole? @relation(fields: [roleId], references: [id])
+
+  // Technischer Code (z. B. "DIAMOND", "GLOBAL_ELITE")
+  code String
+
+  // Anzeigename (z. B. "Diamond", "Global Elite")
+  name String
+
+  // Reihenfolge (1 = niedrig, 10 = hoch)
+  sortOrder Int
+
+  @@unique([gameId, code, roleId])
+}
+
+model PlayerGameProfile {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  playerId String
+  player   PlayerProfile @relation(fields: [playerId], references: [id])
+
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  // optionale Verknüpfung zur primären Rolle (z. B. "Jungle", "IGL")
+  primaryRoleId String?
+  primaryRole   GameRole? @relation("PlayerPrimaryRole", fields: [primaryRoleId], references: [id])
+
+  // Rank/Elo als Code (z. B. "DIAMOND", "GE") – passend zu GameRank.code
+  rank String?
+
+  // hier kannst du später noch experience, secondaryRoles etc. ergänzen
+}
+
+model TeamGameProfile {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teamId String
+  team   TeamProfile @relation(fields: [teamId], references: [id])
+
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  // Primäre Rolle des Teams in diesem Game
+  primaryRoleId String?
+  primaryRole   GameRole? @relation("TeamPrimaryRole", fields: [primaryRoleId], references: [id])
+
+  // Rank / Elo des Teams in diesem Game (z. B. "Diamond", "Immortal")
+  rank String?
+
+  // Ambition / Level: "pro", "semi", "amateur"
+  competitiveLevel String?
+}
+
+//
+// MATCHING: OPEN POSITIONS, APPLICATIONS, ETC.
+//
+
+// Team schreibt eine konkrete Position aus: z. B. "League of Legends - Jungle - EUW"
+model OpenPosition {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teamId String
+  team   TeamProfile @relation(fields: [teamId], references: [id])
+
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  roleId String?
+  role   GameRole? @relation("OpenPositionRole", fields: [roleId], references: [id])
+
+  // optional: gesuchter Rank / Level (z. B. "DIAMOND", "pro")
+  requiredRank  String?
+  requiredLevel String?
+
+  // Beschreibung / Text der Ausschreibung
+  title       String
+  description String?
+
+  status OpenPositionStatus @default(OPEN)
+
+  // Bewerbungen auf diese Position
+  applications PositionApplication[]
+}
+
+// Bewerbung eines Spielers auf eine OpenPosition
+model PositionApplication {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  positionId String
+  position   OpenPosition @relation(fields: [positionId], references: [id])
+
+  playerId String
+  player   PlayerProfile @relation(fields: [playerId], references: [id])
+
+  message String?
+
+  // optionaler Status, später evtl. enum
+  status String @default("pending")
+}
+
+//
+// CONTENT: CLIPS & POSTS
+//
+model ContactRequest {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Absender der Anfrage (aktueller User)
+  fromUserId String
+  fromUser   User   @relation("ContactRequestsFrom", fields: [fromUserId], references: [id])
+
+  // Empfänger (User des Ziel-Profils)
+  toUserId String
+  toUser   User   @relation("ContactRequestsTo", fields: [toUserId], references: [id])
+
+  // Kontext: auf welches Profil bezieht sich die Anfrage?
+  targetPlayerId String?
+  targetPlayer   PlayerProfile? @relation("ContactRequestsToPlayer", fields: [targetPlayerId], references: [id])
+
+  targetTeamId String?
+  targetTeam   TeamProfile? @relation("ContactRequestsToTeam", fields: [targetTeamId], references: [id])
+
+  message String?
+  status  ContactRequestStatus @default(PENDING)
+}
+
+model Clip {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // optional: einem Player oder Team zugeordnet
+  playerId String?
+  player   PlayerProfile? @relation(fields: [playerId], references: [id])
+
+  teamId String?
+  team   TeamProfile? @relation(fields: [teamId], references: [id])
+
+  gameId String?
+  game   Game?   @relation(fields: [gameId], references: [id])
+
+  // Key im Object-Storage (z. B. S3 / R2)
+  storageKey String
+
+  // optional Thumbnail
+  thumbnailKey String?
+
+  durationSeconds Int?
+
+  title       String?
+  description String?
+
+  isPublic Boolean @default(true)
+}
+
+model Post {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  // kann von Player oder Team stammen
+  playerId String?
+  player   PlayerProfile? @relation(fields: [playerId], references: [id])
+
+  teamId String?
+  team   TeamProfile? @relation(fields: [teamId], references: [id])
+
+  title   String
+  content String
+
+  isPublic Boolean @default(true)
+}
+
+//
+// NOTIFICATIONS
+//
+
+model Notification {
+  id        String    @id @default(uuid())
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  type    String // z. B. "MATCH_SUGGESTION", "TEAM_INVITE", ...
+  payload Json // generische Daten, z. B. IDs, Texte
+
+  isRead Boolean @default(false)
+}
