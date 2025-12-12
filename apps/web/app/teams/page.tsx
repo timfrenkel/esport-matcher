@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   ApiError,
   apiGetGames,
@@ -238,7 +239,7 @@ export default function TeamsPage() {
             </select>
           </div>
 
-
+          {/* Team-Level */}
           <div className="space-y-1">
             <label className="text-[11px] uppercase tracking-wide text-gray-400">
               Team-Level
@@ -257,7 +258,7 @@ export default function TeamsPage() {
             </select>
           </div>
 
-
+          
           {/* Textsuche */}
           <div className="space-y-1">
             <label className="text-[11px] uppercase tracking-wide text-gray-400">
@@ -329,6 +330,11 @@ export default function TeamsPage() {
               const mainRegion = team.region ?? "nicht angegeben";
               const mainLevel = team.level ?? "nicht gesetzt";
 
+              const gameEntriesCount =
+              (team as any).teamGameProfiles?.length ??
+              (team as any).gameProfiles?.length ??
+              0;
+
               return (
                 <article
                   key={team.id}
@@ -359,8 +365,8 @@ export default function TeamsPage() {
                     </div>
 
                     <div className="text-[11px] text-gray-500">
-                      Spiele-Einträge:{" "}
-                      {team.gameProfiles ? team.gameProfiles.length : 0}
+                    Spiele-Einträge:{" "}
+                    {gameEntriesCount}
                     </div>
                   </div>
 
@@ -370,18 +376,16 @@ export default function TeamsPage() {
                         Nächste Schritte
                       </span>
                       <span className="block">
-                        In späteren Iterationen kannst du hier direkt offene
-                        Positionen und Bewerbungen einsehen.
+                        Öffne das Teamprofil, um Spiele, Rollen &amp; Level
+                        zu sehen.
                       </span>
                     </div>
-                    {/* Platzhalter-Button – später: Teamdetailseite */}
-                    <button
-                      type="button"
-                      disabled
-                      className="inline-flex items-center justify-center rounded-full border border-[#00eaff] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#00eaff] shadow-[0_0_12px_rgba(0,234,255,0.3)] transition hover:shadow-[0_0_20px_rgba(0,234,255,0.7)] disabled:opacity-50"
+                    <Link
+                      href={`/teams/${team.id}`}
+                      className="inline-flex items-center justify-center rounded-full border border-[#00eaff] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#00eaff] shadow-[0_0_12px_rgba(0,234,255,0.3)] transition hover:shadow-[0_0_20px_rgba(0,234,255,0.7)]"
                     >
-                      Details (bald)
-                    </button>
+                      Teamprofil ansehen
+                    </Link>
                   </div>
                 </article>
               );

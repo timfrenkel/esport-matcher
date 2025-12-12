@@ -49,28 +49,21 @@ export class GamesService {
     });
   }
 
-  /**
-   * Alle Ranks (GameRank) für ein Spiel.
-   * Optional gefiltert nach roleId (falls du später ranks pro Rolle pflegst).
-   */
-  async getGameRanks(gameId: string, roleId?: string) {
-    const game = await this.prisma.game.findUnique({
-      where: { id: gameId },
+  async getRanksForGame(identifier: string, roleId?: string) {
+    const game = await this.prisma.game.findFirst({
+      where: {
+        OR: [{ id: identifier }, { code: identifier }],
+      },
     });
 
-    if (!game) {
-      throw new NotFoundException("Game not found");
-    }
+    if (!game) return [];
 
     return this.prisma.gameRank.findMany({
       where: {
-        gameId,
+        gameId: game.id,
         ...(roleId ? { roleId } : {}),
       },
-      orderBy: [
-        { sortOrder: "asc" },
-        { name: "asc" },
-      ],
+      orderBy: { sortOrder: "asc" },
     });
   }
 }

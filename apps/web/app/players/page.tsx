@@ -1,19 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   ApiError,
   apiGetGames,
   apiGetGameRoles,
+  apiGetGameRanks,
   apiSearchPlayers,
   GameDto,
   GameRoleDto,
+  GameRankDto,
   PaginatedResult,
   PlayerProfileSummary,
 } from "@/lib/api";
 import { GAME_REGIONS } from "@/lib/constants";
 
-// Sprachen-Auswahl für Filter (wird nur als Filterstring genutzt)
+// Sprachen-Auswahl für Filter
 const LANGUAGE_OPTIONS = [
   { value: "", label: "Alle Sprachen" },
   { value: "de", label: "Deutsch" },
@@ -24,83 +27,21 @@ const LANGUAGE_OPTIONS = [
   { value: "tr", label: "Türkisch" },
 ];
 
-// Rank/Elo Filter – game-spezifisch
-type RankFilterOption = { value: string; label: string };
-
-const GENERIC_RANK_FILTER_OPTIONS: RankFilterOption[] = [
-  { value: "", label: "Alle Ranks" },
-  { value: "Iron", label: "Iron" },
-  { value: "Bronze", label: "Bronze" },
-  { value: "Silver", label: "Silver" },
-  { value: "Gold", label: "Gold" },
-  { value: "Platinum", label: "Platinum" },
-  { value: "Diamond", label: "Diamond" },
-  { value: "Master", label: "Master" },
-  { value: "Grandmaster", label: "Grandmaster" },
-  { value: "Challenger", label: "Challenger" },
-];
-
-const GAME_RANK_FILTER_OPTIONS_BY_NAME: Record<
-  string,
-  RankFilterOption[]
-> = {
-  "League of Legends": [
-    { value: "", label: "Alle Ranks" },
-    { value: "Iron", label: "Iron" },
-    { value: "Bronze", label: "Bronze" },
-    { value: "Silver", label: "Silver" },
-    { value: "Gold", label: "Gold" },
-    { value: "Platinum", label: "Platinum" },
-    { value: "Emerald", label: "Emerald" },
-    { value: "Diamond", label: "Diamond" },
-    { value: "Master", label: "Master" },
-    { value: "Grandmaster", label: "Grandmaster" },
-    { value: "Challenger", label: "Challenger" },
-  ],
-  VALORANT: [
-    { value: "", label: "Alle Ranks" },
-    { value: "Iron", label: "Iron" },
-    { value: "Bronze", label: "Bronze" },
-    { value: "Silver", label: "Silver" },
-    { value: "Gold", label: "Gold" },
-    { value: "Platinum", label: "Platinum" },
-    { value: "Diamond", label: "Diamond" },
-    { value: "Ascendant", label: "Ascendant" },
-    { value: "Immortal", label: "Immortal" },
-    { value: "Radiant", label: "Radiant" },
-  ],
-  "Counter-Strike 2": [
-    { value: "", label: "Alle Ranks" },
-    { value: "Silver", label: "Silver" },
-    { value: "Gold Nova", label: "Gold Nova" },
-    { value: "Master Guardian", label: "Master Guardian" },
-    { value: "Legendary Eagle", label: "Legendary Eagle" },
-    { value: "Supreme", label: "Supreme" },
-    { value: "Global Elite", label: "Global Elite" },
-  ],
-};
-
-function getRankFilterOptionsForGame(
-  game: GameDto | undefined,
-): RankFilterOption[] {
-  if (!game) return GENERIC_RANK_FILTER_OPTIONS;
-  return (
-    GAME_RANK_FILTER_OPTIONS_BY_NAME[game.name] ||
-    GENERIC_RANK_FILTER_OPTIONS
-  );
-}
+type RankOption = { value: string; label: string };
 
 export default function PlayersPage() {
   const [games, setGames] = useState<GameDto[]>([]);
-  const [rolesByGame, setRolesByGame] = useState<
-    Record<string, GameRoleDto[]>
-  >({});
+  const [rolesByGame, setRolesByGame] = useState<Record<string, GameRoleDto[]>>(
+    {},
+  );
 
   const [selectedGameId, setSelectedGameId] = useState<string>("");
   const [selectedRoleId, setSelectedRoleId] = useState<string>("");
   const [selectedRegion, setSelectedRegion] = useState<string>("");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("");
   const [selectedRankFilter, setSelectedRankFilter] = useState<string>("");
+
+  const [rankOptions, setRankOptions] = useState<RankOption[]>([]);
 
   const [q, setQ] = useState<string>("");
 
@@ -131,6 +72,51 @@ export default function PlayersPage() {
       setRolesByGame((prev) => ({ ...prev, [gameId]: roles }));
     } catch (err) {
       console.error("Failed to load roles for game", gameId, err);
+    }
+  }
+
+  // 🔥 Ranks für ein Spiel laden – wichtig: wir benutzen den Game-Code (z.B. "LOL"),
+  // weil dein Endpoint /api/games/LOL/ranks den Code erwartet.
+  async function loadRanksForGame(gameId: string) {
+    if (!gameId) {
+      setRankOptions([]);
+      setSelectedRankFilter("");
+      return;
+    }
+
+    // Das Game-Objekt anhand der ID finden
+    const game = games.find((g) => g.id === gameId);
+
+    // Wenn wir das Game nicht finden, gibt's nichts zu laden
+    if (!game) {
+      console.warn("Kein Game für gameId gefunden, breche Rank-Load ab:", gameId);
+      setRankOptions([]);
+      setSelectedRankFilter("");
+      return;
+    }
+
+    // Identifier = Game-Code (z.B. "LOL"), weil dein Backend darauf hört
+    const identifier = game.code ?? gameId;
+
+    try {
+      const ranks: GameRankDto[] = await apiGetGameRanks(identifier);
+      const opts: RankOption[] = [
+        { value: "", label: "Alle Ranks" },
+        ...ranks.map((r) => ({
+          // WICHTIG:
+          // value = CODE (z.B. "DIAMOND"), der in PlayerGameProfile.rank gespeichert ist
+          value: r.code,
+          // label = schöner Name (z.B. "Diamond")
+          label: r.name,
+        })),
+      ];
+      setRankOptions(opts);
+      setSelectedRankFilter("");
+    } catch (err) {
+      console.error("Failed to load ranks for game", identifier, err);
+      // Fallback: nur "Alle Ranks"
+      setRankOptions([{ value: "", label: "Alle Ranks" }]);
+      setSelectedRankFilter("");
     }
   }
 
@@ -173,10 +159,17 @@ export default function PlayersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Rollen + Rank-Filter zurücksetzen, wenn Spiel wechselt
+  // Wenn Spiel wechselt:
+  // - Rollen nachladen
+  // - Ranks (aus Seed/DB) nachladen
+  // - Filter zurücksetzen
   useEffect(() => {
     if (selectedGameId) {
       ensureRolesLoaded(selectedGameId);
+      loadRanksForGame(selectedGameId);
+      setSelectedRoleId("");
+    } else {
+      setRankOptions([]);
       setSelectedRoleId("");
       setSelectedRankFilter("");
     }
@@ -198,6 +191,7 @@ export default function PlayersPage() {
     setSelectedRegion("");
     setSelectedLanguage("");
     setSelectedRankFilter("");
+    setRankOptions([]);
     setQ("");
     setPage(1);
     loadPlayers({ resetPage: true });
@@ -221,9 +215,6 @@ export default function PlayersPage() {
 
   const currentRoles =
     (selectedGameId && rolesByGame[selectedGameId]) || [];
-
-  const selectedGame = games.find((g) => g.id === selectedGameId);
-  const rankFilterOptions = getRankFilterOptionsForGame(selectedGame);
 
   return (
     <div className="space-y-8">
@@ -251,8 +242,8 @@ export default function PlayersPage() {
             </p>
           </div>
           <div className="hidden text-[11px] text-gray-500 md:block">
-            Alle Werte sind vorgegeben – keine Verwirrung mehr zwischen
-            &quot;EUW&quot; und &quot;EU West&quot;.
+            Alle Werte stammen aus euren Game-Definitionen (Seed / GameRank &
+            GameRole).
           </div>
         </div>
 
@@ -308,19 +299,17 @@ export default function PlayersPage() {
               className="w-full rounded-xl bg-black/40 px-3 py-2 text-sm text-white outline-none ring-1 ring-border/60 focus:ring-[#00eaff]"
               value={selectedRankFilter}
               onChange={(e) => setSelectedRankFilter(e.target.value)}
-              disabled={!selectedGameId}
+              disabled={!selectedGameId || rankOptions.length === 0}
             >
-              <option value="">
-                {selectedGameId
-                  ? "Alle Ranks"
-                  : "Erst Spiel auswählen"}
-              </option>
-              {selectedGameId &&
-                rankFilterOptions.map((opt) => (
+              {!selectedGameId ? (
+                <option value="">Erst Spiel auswählen</option>
+              ) : (
+                rankOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
-                ))}
+                ))
+              )}
             </select>
           </div>
 
@@ -389,7 +378,7 @@ export default function PlayersPage() {
             <button
               type="button"
               onClick={handleResetFilters}
-              className="rounded-full border border-border px-5 py-2 text-xs font-semibold uppercase tracking-wide text-gray-200 transition hover:border-[#00eaff] hover:text-[#00eaff]"
+              className="rounded-full border border-border px-5 py-2 text-xs font-semibold uppercase tracking-wide text-gray-200 transition hover:border-[#00eaff] hover:text-[#00eaff] transition"
             >
               Zurücksetzen
             </button>
@@ -404,9 +393,7 @@ export default function PlayersPage() {
         </div>
       )}
 
-      {loading && (
-        <div className="text-sm text-gray-300">Lade Spieler.</div>
-      )}
+      {loading && <div className="text-sm text-gray-300">Lade Spieler.</div>}
 
       {/* Ergebnisliste */}
       {!loading && data && data.items.length === 0 && (
@@ -455,7 +442,12 @@ export default function PlayersPage() {
                 </div>
 
                 <div className="text-right text-[11px] text-gray-400">
-                  Detailprofil &amp; Matching folgen später.
+                  <Link
+                    href={`/players/${player.id}`}
+                    className="text-accent underline-offset-2 hover:underline"
+                  >
+                    Spielerprofil ansehen
+                  </Link>
                 </div>
               </article>
             ))}

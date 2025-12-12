@@ -202,6 +202,14 @@ export interface GameRoleDto {
   gameId: string;
 }
 
+export interface GameRankDto {
+  id: string;
+  gameId: string;
+  code: string;
+  name: string;
+  sortOrder: number;
+}
+
 export interface PlayerGameProfileDto {
   id: string;
   gameId: string;

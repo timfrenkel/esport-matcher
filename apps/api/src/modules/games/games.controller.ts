@@ -32,17 +32,12 @@ export class GamesController {
     return this.gamesService.findRolesForGame(id);
   }
 
-  /**
-   * GET /games/:id/ranks
-   * Liefert alle Ranks (GameRank) für ein Spiel.
-   * Optional gefiltert nach roleId (?roleId=...),
-   * falls du ranks pro Rolle irgendwann nutzt.
-   */
+
   @Get(":id/ranks")
-  getGameRanks(
+  getRanksForGame(
     @Param("id") id: string,
     @Query("roleId") roleId?: string,
   ) {
-    return this.gamesService.getGameRanks(id, roleId);
+    return this.gamesService.getRanksForGame(id, roleId);
   }
 }
