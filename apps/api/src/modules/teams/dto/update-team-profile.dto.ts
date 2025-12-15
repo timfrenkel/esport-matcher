@@ -34,4 +34,16 @@ export class UpdateTeamProfileDto {
   @IsString()
   @MaxLength(32)
   level?: string;
+
+  // ✅ NEU: Profilbild (storageKey)
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  profileImageKey?: string | null;
+
+  // ✅ NEU: Bannerbild (storageKey)
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  bannerImageKey?: string | null;
 }

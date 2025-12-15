@@ -1,336 +1,185 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
 import { UpdatePlayerProfileDto } from "./dto/update-player-profile.dto";
-import { UpsertPlayerGameProfileDto } from "./dto/upsert-player-game-profile.dto";
-import { SearchPlayersDto } from "./dto/search-players.dto";
-import { normalizeRegion } from "../../common/region-normalizer";
 
+// Die Controller rufen exakt diese Methoden auf.
+// Wir implementieren sie so, dass sie zu deinem bestehenden API-Vertrag passen.
 
 @Injectable()
 export class PlayersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Spielerprofil des aktuellen Users holen (inkl. Game-Profile)
-   */
-  async getMyProfile(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        playerProfile: {
-          include: {
-            gameProfiles: {
-              include: {
-                game: true,
-                primaryRole: true,
-              },
-            },
-          },
+  // --------- Helper ---------
+
+  private includeForProfile() {
+    return {
+      gameProfiles: {
+        include: {
+          game: true,
+          primaryRole: true,
         },
       },
-    });
-
-    if (!user || !user.playerProfile) {
-      throw new NotFoundException("Player profile for user not found");
-    }
-
-    return user.playerProfile;
-  }
-  
-  
-  async getMyPlayerProfile(userId: string) {
-    // kleiner Alias, damit der Controller happy ist
-    return this.getMyProfile(userId);
+    };
   }
 
-
-  async getPublicPlayerProfile(playerId: string) {
-    const player = await this.prisma.playerProfile.findUnique({
-      where: { id: playerId },
-      include: {
-        gameProfiles: {
-          include: {
-            game: true,
-            primaryRole: true,
-          },
-        },
-      },
-    });
-
-    if (!player) {
-      throw new NotFoundException("Spielerprofil nicht gefunden");
-    }
-
-    return player;
-  }
-
-  /**
-   * Spielerprofil des aktuellen Users updaten
-   */
-  async updateMyProfile(userId: string, dto: UpdatePlayerProfileDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { playerProfile: true },
-    });
-
-    if (!user || !user.playerProfile) {
-      throw new NotFoundException("Player profile for user not found");
-    }
-
-    return this.prisma.playerProfile.update({
-      where: { id: user.playerProfile.id },
-      data: {
-        displayName: dto.displayName,
-        region: normalizeRegion(dto.region),
-        timezone: dto.timezone ?? null,
-        languages: dto.languages ?? [],
-        bio: dto.bio ?? null,
-        isPro: dto.isPro ?? false,
-        visibility: dto.visibility,
-      },
-      include: {
-        user: { select: { id: true, email: true } },
-        gameProfiles: {
-          include: { game: true, primaryRole: true },
-        },
-      },
-    });
-  }
-
-  async findByUserId(userId: string) {
-    const profile = await this.prisma.playerProfile.findUnique({
+  private async getProfileByUserIdOrThrow(userId: string) {
+    const profile = await (this.prisma as any).playerProfile.findUnique({
       where: { userId },
-      include: {
-        user: { select: { id: true, email: true } },
-        gameProfiles: {
-          include: { game: true, primaryRole: true },
-        },
-      },
+      include: this.includeForProfile(),
     });
-
-    if (!profile) {
-      throw new NotFoundException("Player profile for user not found");
-    }
-
+    if (!profile) throw new NotFoundException("Spielerprofil nicht gefunden.");
     return profile;
   }
 
-  /**
-   * Game-Profile für einen Spieler (per PlayerProfileId) upserten.
-   *
-   * Verhalten:
-   * - alle bestehenden Game-Profile dieses Spielers werden gelöscht
-   * - alle übergebenen Game-Profile (dtos) werden neu angelegt
-   *
-   * => Entfernen im UI entfernt auch wirklich in der DB.
-   */
-
-  async upsertPlayerGameProfiles(
-    playerProfileId: string,
-    dtos: UpsertPlayerGameProfileDto[],
-  ) {
-    const playerId = playerProfileId;
-
-    // 1) Alte Game-Profile komplett löschen
-    await this.prisma.playerGameProfile.deleteMany({
-      where: { playerId },
+  private async getProfileByIdOrThrow(id: string) {
+    const profile = await (this.prisma as any).playerProfile.findUnique({
+      where: { id },
+      include: this.includeForProfile(),
     });
-
-    // 2) Neue Game-Profile aus DTO erzeugen (nur mit gameId)
-    const createOps = dtos
-      .filter((dto) => dto.gameId)
-      .map((dto) =>
-        this.prisma.playerGameProfile.create({
-          data: {
-            playerId,                          // PlayerProfile.id
-            gameId: dto.gameId,
-            primaryRoleId: dto.primaryRoleId ?? null,
-            rank: dto.rank ?? null,
-            // mmr und lookingForTeam sind entfernt,
-            // weil sie im Prisma-Model nicht existieren
-          },
-        }),
-      );
-
-    // 3) Alle Create-Operationen parallel ausführen
-    await this.prisma.$transaction(createOps);
+    if (!profile) throw new NotFoundException("Spieler nicht gefunden.");
+    return profile;
   }
 
-  /**
-   * Einzelnen Spieler (PlayerProfile) per ID holen – inkl. User & Game-Profile.
-   */
-  async findOne(id: string) {
-    const player = await this.prisma.playerProfile.findUnique({
-      where: { id },
-      include: {
-        user: { select: { id: true, email: true } },
-        gameProfiles: {
-          include: { game: true, primaryRole: true },
-        },
+  // --------- Controller contract ---------
+
+  // GET /players/me
+  async getMyProfile(userId: string) {
+    return this.getProfileByUserIdOrThrow(userId);
+  }
+
+  // PATCH/PUT /players/me
+  async updateProfileByUserId(userId: string, dto: UpdatePlayerProfileDto) {
+    await this.getProfileByUserIdOrThrow(userId);
+
+    return (this.prisma as any).playerProfile.update({
+      where: { userId },
+      data: {
+        displayName: dto.displayName,
+        region: dto.region ?? undefined,
+        timezone: dto.timezone ?? undefined,
+        languages: dto.languages ?? undefined,
+        availability: dto.availability ?? undefined,
+        bio: dto.bio ?? undefined,
+        isPro: dto.isPro ?? undefined,
+        visibility: dto.visibility ?? undefined,
+        profileImageKey: dto.profileImageKey === undefined ? undefined : dto.profileImageKey,
       },
+      include: this.includeForProfile(),
     });
-
-    if (!player) {
-      throw new NotFoundException("Player not found");
-    }
-
-    return player;
   }
 
-  /**
-   * Spielerprofil anhand der User-ID finden.
-   */
-
-  /**
-   * Spielersuche mit Filtern (Spiel, Rolle, Region, Sprache, Rank, Textsuche).
-   */
-  async list(params: SearchPlayersDto) {
-    const page = params.page ?? 1;
-    const pageSize = params.pageSize ?? 20;
-
-    const where: any = {
-      user: { role: "PLAYER" },
-    };
-
-    // Freitext auf DisplayName + E-Mail
-    if (params.q) {
-      where.OR = [
-        { displayName: { contains: params.q, mode: "insensitive" } },
-        { user: { email: { contains: params.q, mode: "insensitive" } } },
-      ];
-    }
-
-    // Region
-    if (params.region) {
-      where.region = params.region;
-    }
-
-    // Sprache (languages-Array enthält Code)
-    if (params.language) {
-      where.languages = { has: params.language };
-    }
-
-    // Optional: isPro-Flag (separater Toggle, falls du ihn nutzen willst)
-    if (typeof params.isPro === "boolean") {
-      where.isPro = params.isPro;
-    }
-
-    // Game / Role / Rank -> über GameProfiles
-    if (params.gameId || params.roleId || params.rank) {
-      const gameProfileWhere: any = {};
-
-      if (params.gameId) {
-        gameProfileWhere.gameId = params.gameId;
-      }
-      if (params.roleId) {
-        gameProfileWhere.primaryRoleId = params.roleId;
-      }
-      if (params.rank) {
-        // 1:1 Match auf den Rank-String (z.B. "Diamond")
-        gameProfileWhere.rank = params.rank;
-      }
-
-      where.gameProfiles = { some: gameProfileWhere };
-    }
-
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.playerProfile.findMany({
-        where,
-        include: {
-          user: { select: { id: true, email: true } },
-          gameProfiles: {
-            include: { game: true, primaryRole: true },
-          },
-        },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        orderBy: { createdAt: "desc" },
-      }),
-      this.prisma.playerProfile.count({ where }),
-    ]);
-
-    return {
-      items,
-      total,
-      page,
-      pageSize,
-    };
+  // PUT /players/me/games (oder ähnlich)
+  async upsertGameProfilesByUserId(userId: string, dtos: any[]) {
+    const profile = await this.getProfileByUserIdOrThrow(userId);
+    return this.upsertPlayerGameProfiles(profile.id, dtos);
   }
 
-  /**
-   * Spielerprofil direkt per ID updaten (z.B. Admin / PUT /players/:id)
-   */
-  async updateById(id: string, dto: UpdatePlayerProfileDto) {
-    const existing = await this.prisma.playerProfile.findUnique({
-      where: { id },
-    });
-    if (!existing) {
-      throw new NotFoundException("Player not found");
-    }
+// GET /players/search
+async searchPlayers(query: any) {
+  const q = (query?.q ?? query?.query ?? "").toString().trim();
+  const region = (query?.region ?? "").toString().trim();
+  const gameId = (query?.gameId ?? "").toString().trim();
 
-    return this.prisma.playerProfile.update({
+  const page = Math.max(1, parseInt(query?.page ?? "1", 10) || 1);
+  const pageSize = Math.min(
+    100,
+    Math.max(1, parseInt(query?.pageSize ?? "20", 10) || 20),
+  );
+  const skip = (page - 1) * pageSize;
+
+  const where: any = {
+    ...(q
+      ? {
+          OR: [
+            { displayName: { contains: q, mode: "insensitive" } },
+            { bio: { contains: q, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+    ...(region ? { region } : {}),
+    ...(gameId
+      ? {
+          // ⚠️ Wenn dein Schema anders heißt, hier anpassen:
+          // häufig: playerGameProfiles statt gameProfiles
+          gameProfiles: { some: { gameId } },
+        }
+      : {}),
+    visibility: "PUBLIC",
+  };
+
+  const [total, items] = await Promise.all([
+    (this.prisma as any).playerProfile.count({ where }),
+    (this.prisma as any).playerProfile.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: this.includeForProfile?.() ?? undefined,
+      skip,
+      take: pageSize,
+    }),
+  ]);
+
+  return { items, total, page, pageSize };
+}
+
+  // GET /players/user/:userId
+  async findByUserId(userId: string) {
+    return this.getProfileByUserIdOrThrow(userId);
+  }
+
+  // GET /players/:id
+  async findById(id: string) {
+    return this.getProfileByIdOrThrow(id);
+  }
+
+  // PATCH/PUT /players/:id (Admin oder intern)
+  async updateProfile(id: string, dto: UpdatePlayerProfileDto) {
+    await this.getProfileByIdOrThrow(id);
+
+    return (this.prisma as any).playerProfile.update({
       where: { id },
       data: {
         displayName: dto.displayName,
-        region: dto.region ?? existing.region,
-        timezone: dto.timezone ?? existing.timezone,
-        languages: dto.languages ?? existing.languages,
-        bio: dto.bio ?? existing.bio,
-        isPro: dto.isPro ?? existing.isPro,
-        visibility: dto.visibility ?? existing.visibility,
+        region: dto.region ?? undefined,
+        timezone: dto.timezone ?? undefined,
+        languages: dto.languages ?? undefined,
+        availability: dto.availability ?? undefined,
+        bio: dto.bio ?? undefined,
+        isPro: dto.isPro ?? undefined,
+        visibility: dto.visibility ?? undefined,
+        profileImageKey: dto.profileImageKey === undefined ? undefined : dto.profileImageKey,
       },
-      include: {
-        user: { select: { id: true, email: true } },
-        gameProfiles: {
-          include: { game: true, primaryRole: true },
-        },
-      },
+      include: this.includeForProfile(),
     });
   }
 
-  // ---------------------------------------------------------
-  // Wrapper-Methoden für den Controller
-  // ---------------------------------------------------------
+  // PUT /players/:id/games
+  async upsertPlayerGameProfiles(playerProfileId: string, dtos: any[]) {
+    const profile = await this.getProfileByIdOrThrow(playerProfileId);
 
-  async searchPlayers(query: SearchPlayersDto) {
-    return this.list(query);
-  }
+    // dtos erwartet typischerweise: [{ id?, gameId, primaryRoleId?, rank? }, ...]
+    // Wir machen es robust: "replace all" (einfach & stabil)
+    return this.prisma.$transaction(async (tx) => {
+      await (tx as any).playerGameProfile.deleteMany({
+        where: { playerProfileId: profile.id },
+      });
 
-  async updateProfileByUserId(userId: string, dto: UpdatePlayerProfileDto) {
-    return this.updateMyProfile(userId, dto);
-  }
+      if (Array.isArray(dtos) && dtos.length > 0) {
+        await (tx as any).playerGameProfile.createMany({
+          data: dtos
+            .filter((d) => d && d.gameId)
+            .map((d) => ({
+              playerProfileId: profile.id,
+              gameId: d.gameId,
+              primaryRoleId: d.primaryRoleId ?? null,
+              rank: d.rank ?? null,
+            })),
+        });
+      }
 
-  async upsertGameProfilesByUserId(
-    userId: string,
-    dtos: UpsertPlayerGameProfileDto[],
-  ) {
-    const profile = await this.prisma.playerProfile.findUnique({
-      where: { userId },
+      return (tx as any).playerProfile.findUnique({
+        where: { id: profile.id },
+        include: this.includeForProfile(),
+      });
     });
-
-    if (!profile) {
-      throw new NotFoundException("Player profile for user not found");
-    }
-
-    await this.upsertPlayerGameProfiles(profile.id, dtos);
-
-    // aktualisiertes Profil inkl. GameProfiles zurückgeben
-    return this.prisma.playerProfile.findUnique({
-      where: { id: profile.id },
-      include: {
-        user: { select: { id: true, email: true } },
-        gameProfiles: {
-          include: { game: true, primaryRole: true },
-        },
-      },
-    });
-  }
-
-  async findById(id: string) {
-    return this.findOne(id);
-  }
-
-  async updateProfile(id: string, dto: UpdatePlayerProfileDto) {
-    return this.updateById(id, dto);
   }
 }

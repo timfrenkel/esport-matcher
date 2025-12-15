@@ -227,6 +227,7 @@ export interface PlayerProfile {
   timezone: string | null;
   languages: string[] | null;
   bio: string | null;
+  profileImageKey?: string | null;
   isPro: boolean;
   visibility: Visibility;
   createdAt?: string;
@@ -254,6 +255,8 @@ export interface TeamProfile {
   visibility: Visibility;
   bio: string | null;
   createdAt?: string;
+  profileImageKey?: string | null;
+  bannerImageKey?: string | null;
   gameProfiles: TeamGameProfileDto[];
 }
 
@@ -283,6 +286,43 @@ export interface TeamProfileSummary {
   createdAt: string;
   gameProfiles?: TeamGameProfileDto[];
 }
+
+export type ChatUserLite = {
+  id: string;
+  email?: string | null;
+};
+
+export type ChatGameLite = {
+  id: string;
+  name: string;
+};
+
+export type ChatContactRequestLite = {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  status: string;
+  game?: ChatGameLite | null;
+  fromUser?: ChatUserLite | null;
+  toUser?: ChatUserLite | null;
+};
+
+export type ChatMessageDto = {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  content: string;
+  createdAt: string;
+};
+
+export type ChatConversationDto = {
+  id: string;
+  updatedAt: string;
+  createdAt: string;
+  contactRequestId: string;
+  contactRequest?: ChatContactRequestLite;
+  messages?: ChatMessageDto[]; // backend liefert beim listMyChats optional last message (take: 1)
+};
 
 // Für Listenansichten: Alias-Typen, damit Pages weiterhin PlayerListItem / TeamListItem importieren können
 export type PlayerListItem = PlayerProfileSummary;
@@ -322,6 +362,7 @@ export interface UpdatePlayerProfileInput {
   bio?: string;
   isPro: boolean;
   visibility: Visibility;
+  profileImageKey?: string | null;
 }
 
 export async function apiGetMyPlayerProfile(): Promise<PlayerProfile> {
@@ -359,6 +400,29 @@ export async function apiUpsertMyPlayerGameProfiles(
   return apiFetch<PlayerProfile>("/players/me/games", {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+
+export async function apiGetChats(): Promise<ChatConversationDto[]> {
+  return apiFetch<ChatConversationDto[]>("/chats", { method: "GET" });
+}
+
+export async function apiGetChatMessages(
+  conversationId: string,
+): Promise<ChatMessageDto[]> {
+  return apiFetch<ChatMessageDto[]>(`/chats/${conversationId}/messages`, {
+    method: "GET",
+  });
+}
+
+export async function apiSendChatMessage(
+  conversationId: string,
+  content: string,
+): Promise<ChatMessageDto> {
+  return apiFetch<ChatMessageDto>(`/chats/${conversationId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
   });
 }
 
@@ -531,12 +595,13 @@ export async function apiGetOutgoingContactRequests(): Promise<
 export async function apiUpdateContactRequestStatus(
   id: string,
   status: ContactRequestStatus,
-): Promise<void> {
-  await apiFetch<void>(`/contact-requests/${id}`, {
+): Promise<{ conversationId?: string | null }> {
+  return apiFetch<{ conversationId?: string | null }>(`/contact-requests/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
 }
+
 
 // --- Team-Profil (aktueller User) ---
 
@@ -564,4 +629,51 @@ export async function apiGetMatchingTeamsForMe(): Promise<TeamProfileSummary[]> 
 // Spieler, die zu mir (eingeloggter User / Team) passen
 export async function apiGetMatchingPlayersForMe(): Promise<PlayerProfileSummary[]> {
   return apiFetch<PlayerProfileSummary[]>("/matching/players-for-me");
+}
+
+function getAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem("em_auth");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed.accessToken === "string" ? parsed.accessToken : null;
+  } catch {
+    return null;
+  }
+}
+// ---------------------------------------
+// Media helpers (Upload + URL)
+// ---------------------------------------
+
+export function mediaUrl(storageKey: string) {
+  // API_BASE_URL enthält bereits /api
+  return `${API_BASE_URL}/media/${storageKey}`;
+}
+
+export async function apiUploadMedia(file: File): Promise<{ storageKey: string }> {
+  const token = getAuthTokenFromStorage(); // die Funktion hast du bereits in api.ts
+  const form = new FormData();
+  form.append("file", file);
+
+  const res = await fetch(`${API_BASE_URL}/media/upload`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: form,
+  });
+
+  const text = await res.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+
+  if (!res.ok) {
+    const msg = (data && (data.message || data.error)) || "Upload fehlgeschlagen.";
+    throw new ApiError(res.status, msg);
+  }
+
+  return data as { storageKey: string };
 }

@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 type CurrentUser = {
-  id: string;
+  userId: string;
   email: string;
   role: string;
 };
@@ -21,13 +21,16 @@ export function MainNav() {
 
   const readUserFromStorage = () => {
     if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem("currentUser");
+
+    const stored = window.localStorage.getItem("em_auth");
     if (!stored) {
       setUser(null);
       return;
     }
+
     try {
-      setUser(JSON.parse(stored));
+      const parsed = JSON.parse(stored);
+      setUser(parsed);
     } catch {
       setUser(null);
     }
@@ -62,8 +65,7 @@ export function MainNav() {
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem("accessToken");
-      window.localStorage.removeItem("currentUser");
+      window.localStorage.removeItem("em_auth");
       window.dispatchEvent(new Event("auth-changed"));
     }
     router.push("/auth/login");
@@ -108,6 +110,19 @@ export function MainNav() {
           >
             Anfragen
           </Link>
+
+          <Link
+            href="/dashboard/chats"
+            className={classNames(
+              "px-2 py-1 transition",
+              isActive("/dashboard/chats")
+                ? "text-[#00eaff] border-b border-[#00eaff]"
+                : "hover:text-white"
+            )}
+          >
+            Chats
+          </Link>
+
 
           <Link
             href="/players"

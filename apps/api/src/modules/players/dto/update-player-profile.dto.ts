@@ -42,6 +42,10 @@ export class UpdatePlayerProfileDto {
   isPro?: boolean;
 
   @IsOptional()
+  @IsString()
+  profileImageKey?: string;
+
+  @IsOptional()
   @IsEnum(["PUBLIC", "PRIVATE"], {
     message: "visibility must be PUBLIC or PRIVATE",
   })

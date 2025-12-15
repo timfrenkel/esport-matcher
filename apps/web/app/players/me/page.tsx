@@ -12,13 +12,13 @@ import {
   apiGetGameRoles,
   apiGetGameRanks,
   apiUpsertMyPlayerGameProfiles,
+  apiUploadMedia,
+  mediaUrl,
   GameDto,
   GameRoleDto,
   GameRankDto,
 } from "@/lib/api";
 import { REGION_OPTIONS } from "@/lib/regions";
-
-// --- Typen & Options-Listen -------------------------
 
 type Option = { value: string; label: string };
 
@@ -33,9 +33,8 @@ const LANGUAGE_OPTIONS: Option[] = [
   { value: "ru", label: "Russisch" },
 ];
 
-// Lokaler Typ für das Bearbeiten im Frontend
 interface EditablePlayerGameProfile {
-  id?: string; // optional: vorhanden bei bestehenden Einträgen
+  id?: string;
   gameId: string;
   primaryRoleId?: string;
   rank?: string;
@@ -49,28 +48,31 @@ export default function MyPlayerProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // --- Basis-Profil-Form ---
+  // Basis-Profil-Form
   const [displayName, setDisplayName] = useState("");
   const [region, setRegion] = useState("");
   const [languages, setLanguages] = useState<string[]>([]);
   const [bio, setBio] = useState("");
-  const [visibility, setVisibility] =
-    useState<"PUBLIC" | "PRIVATE">("PUBLIC");
+  const [visibility, setVisibility] = useState<"PUBLIC" | "PRIVATE">("PUBLIC");
 
-  // --- Game-Profile-Form ---
+  // 🔥 Bild + Preview
+  const [profileImageKey, setProfileImageKey] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  // Game-Profile-Form
   const [games, setGames] = useState<GameDto[]>([]);
-  const [rolesByGame, setRolesByGame] = useState<
-    Record<string, GameRoleDto[]>
-  >({});
-  const [ranksByGame, setRanksByGame] = useState<
-    Record<string, GameRankDto[]>
-  >({});
-  const [gameProfiles, setGameProfiles] = useState<
-    EditablePlayerGameProfile[]
-  >([]);
+  const [rolesByGame, setRolesByGame] = useState<Record<string, GameRoleDto[]>>(
+    {},
+  );
+  const [ranksByGame, setRanksByGame] = useState<Record<string, GameRankDto[]>>(
+    {},
+  );
+  const [gameProfiles, setGameProfiles] = useState<EditablePlayerGameProfile[]>(
+    [],
+  );
   const [loadingGameMeta, setLoadingGameMeta] = useState(false);
 
-  // Rollen für ein Spiel lazy nachladen & cachen
   const ensureRolesLoaded = async (gameId: string) => {
     if (!gameId) return;
     if (rolesByGame[gameId]) return;
@@ -83,25 +85,25 @@ export default function MyPlayerProfilePage() {
     }
   };
 
-  // Ranks für ein Spiel lazy nachladen & cachen
   const ensureRanksLoaded = async (gameId: string) => {
     if (!gameId) return;
     if (ranksByGame[gameId]) return;
 
     try {
       const ranks = await apiGetGameRanks(gameId);
+      // ✅ FIX: ...prev (nicht .prev)
       setRanksByGame((prev) => ({ ...prev, [gameId]: ranks }));
     } catch (err) {
       console.error("Failed to load ranks for game", gameId, err);
     }
   };
 
-  // Initial: Profil + Spiele laden
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       setError(null);
       setSuccess(null);
+
       try {
         setLoadingGameMeta(true);
         const [p, gamesData] = await Promise.all([
@@ -111,6 +113,9 @@ export default function MyPlayerProfilePage() {
 
         setProfile(p);
 
+        // ✅ Profilbild initial übernehmen
+        setProfileImageKey((p as any).profileImageKey ?? null);
+
         // Basis-Profil in Form füllen
         setDisplayName(p.displayName ?? "");
         setRegion(p.region ?? "");
@@ -118,21 +123,17 @@ export default function MyPlayerProfilePage() {
         setBio(p.bio ?? "");
         setVisibility(p.visibility);
 
-        // Game-Profile in Edit-Form umwandeln
         const mappedGameProfiles: EditablePlayerGameProfile[] =
-          (p.gameProfiles as PlayerGameProfileDto[] | undefined)?.map(
-            (gp) => ({
-              id: gp.id,
-              gameId: gp.gameId,
-              primaryRoleId: gp.primaryRoleId ?? undefined,
-              rank: gp.rank ?? "",
-            }),
-          ) ?? [];
+          (p.gameProfiles as PlayerGameProfileDto[] | undefined)?.map((gp) => ({
+            id: gp.id,
+            gameId: gp.gameId,
+            primaryRoleId: gp.primaryRoleId ?? undefined,
+            rank: gp.rank ?? "",
+          })) ?? [];
 
         setGameProfiles(mappedGameProfiles);
         setGames(gamesData);
 
-        // Rollen & Ranks für bereits vorhandene Spiele vorladen
         const uniqueGameIds = Array.from(
           new Set(mappedGameProfiles.map((gp) => gp.gameId).filter(Boolean)),
         ) as string[];
@@ -141,11 +142,8 @@ export default function MyPlayerProfilePage() {
           await Promise.all([ensureRolesLoaded(gid), ensureRanksLoaded(gid)]);
         }
       } catch (err) {
-        if (err instanceof ApiError) {
-          setError(err.message);
-        } else {
-          setError("Konnte Profil nicht laden.");
-        }
+        if (err instanceof ApiError) setError(err.message);
+        else setError("Konnte Profil nicht laden.");
         console.error(err);
       } finally {
         setLoading(false);
@@ -154,9 +152,27 @@ export default function MyPlayerProfilePage() {
     };
 
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- Basis-Profil speichern ---
+  const handleProfileImageUpload = async (file: File) => {
+    setUploadingImage(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const { storageKey } = await apiUploadMedia(file);
+      setProfileImageKey(storageKey);
+      setSuccess("Profilbild hochgeladen. Jetzt noch speichern.");
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.message);
+      else setError("Upload fehlgeschlagen.");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // ✅ 3.6: Profil speichern inkl. profileImageKey
   const handleProfileSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!profile) return;
@@ -165,43 +181,45 @@ export default function MyPlayerProfilePage() {
     setError(null);
     setSuccess(null);
 
-    const payload: UpdatePlayerProfileInput = {
-      displayName,
-      region: region || undefined,
-      // timezone entfällt
-      languages,
-      bio: bio || undefined,
-      // isPro existiert im Typ noch, wird aber immer false gesetzt
-      isPro: false,
-      visibility,
-    };
+    const payload: UpdatePlayerProfileInput & { profileImageKey?: string | null } =
+      {
+        displayName,
+        region: region || undefined,
+        languages,
+        bio: bio || undefined,
+        isPro: false,
+        visibility,
+        profileImageKey: profileImageKey ?? null,
+      };
 
     try {
-      const updated = await apiUpdateMyPlayerProfile(payload);
+      const updated = await apiUpdateMyPlayerProfile(payload as any);
       setProfile(updated);
+      setProfileImageKey((updated as any).profileImageKey ?? profileImageKey);
       setSuccess("Basis-Profil gespeichert.");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError("Fehler beim Speichern des Profils.");
-      }
+      if (err instanceof ApiError) setError(err.message);
+      else setError("Fehler beim Speichern des Profils.");
       console.error(err);
     } finally {
       setSavingProfile(false);
     }
   };
 
-  // --- Game-Profile-Helpers ---
+    const payload: UpdatePlayerProfileInput = {
+    displayName,
+    region: region || undefined,
+    languages,
+    bio: bio || undefined,
+    isPro: false,
+    visibility,
+    profileImageKey: profileImageKey ?? null,
+  };
 
   const handleAddGameProfile = () => {
     setGameProfiles((prev) => [
       ...prev,
-      {
-        gameId: "",
-        primaryRoleId: undefined,
-        rank: "",
-      },
+      { gameId: "", primaryRoleId: undefined, rank: "" },
     ]);
   };
 
@@ -209,22 +227,13 @@ export default function MyPlayerProfilePage() {
     setGameProfiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleGameProfileChange = <
-    K extends keyof EditablePlayerGameProfile
-  >(
+  const handleGameProfileChange = <K extends keyof EditablePlayerGameProfile>(
     index: number,
     field: K,
     value: EditablePlayerGameProfile[K],
   ) => {
     setGameProfiles((prev) =>
-      prev.map((gp, i) =>
-        i === index
-          ? {
-              ...gp,
-              [field]: value,
-            }
-          : gp,
-      ),
+      prev.map((gp, i) => (i === index ? { ...gp, [field]: value } : gp)),
     );
   };
 
@@ -238,7 +247,7 @@ export default function MyPlayerProfilePage() {
     const payload = gameProfiles
       .filter((gp) => gp.gameId)
       .map((gp) => ({
-        id: gp.id || undefined, // sonst Create
+        id: gp.id || undefined,
         gameId: gp.gameId,
         primaryRoleId: gp.primaryRoleId || undefined,
         rank: gp.rank || undefined,
@@ -248,7 +257,6 @@ export default function MyPlayerProfilePage() {
       const updated = await apiUpsertMyPlayerGameProfiles(payload);
       setProfile(updated);
 
-      // Backend-Antwort zurück in Edit-Form mappen
       const updatedGameProfiles: EditablePlayerGameProfile[] =
         (updated.gameProfiles as PlayerGameProfileDto[] | undefined)?.map(
           (gp) => ({
@@ -262,18 +270,13 @@ export default function MyPlayerProfilePage() {
       setGameProfiles(updatedGameProfiles);
       setSuccess("Game-Profile gespeichert.");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError("Fehler beim Speichern der Game-Profile.");
-      }
+      if (err instanceof ApiError) setError(err.message);
+      else setError("Fehler beim Speichern der Game-Profile.");
       console.error(err);
     } finally {
       setSavingGames(false);
     }
   };
-
-  // --- Rendering ---
 
   if (loading) {
     return (
@@ -300,16 +303,14 @@ export default function MyPlayerProfilePage() {
   return (
     <main className="mx-auto flex max-w-4xl flex-col gap-6 py-4">
       <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold text-white">
-          Mein Spielerprofil
-        </h1>
+        <h1 className="text-2xl font-semibold text-white">Mein Spielerprofil</h1>
         <p className="text-sm text-gray-400">
           Dein Basis-Profil + Game-spezifische Infos bilden die Grundlage für
           Matching &amp; Filter in der Spieler- und Teamsuche.
         </p>
       </div>
 
-      {/* --- Basis-Profil --- */}
+      {/* Basis-Profil */}
       <div className="card p-6">
         <h2 className="text-sm font-semibold text-gray-200">
           Basis-Profil &amp; Sichtbarkeit
@@ -321,11 +322,51 @@ export default function MyPlayerProfilePage() {
 
         <form className="mt-4 space-y-4" onSubmit={handleProfileSubmit}>
           <div className="grid gap-4 md:grid-cols-2">
+            <div className="flex items-center gap-4">
+              <div className="h-20 w-20 overflow-hidden rounded-full border border-white/10 bg-white/5">
+                {profileImageKey ? (
+                  <img
+                    src={mediaUrl(profileImageKey)}
+                    alt="Profilbild"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">
+                    Kein Bild
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-xs text-gray-300">Profilbild</div>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={uploadingImage}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleProfileImageUpload(f);
+                  }}
+                  className="text-xs text-gray-300"
+                />
+                <div className="text-[10px] text-gray-500">
+                  {uploadingImage ? "Lade hoch..." : "PNG/JPG/WEBP bis 8MB."}
+                </div>
+              </div>
+
+              <div className="ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setPreviewOpen(true)}
+                  className="rounded-full border border-border px-4 py-2 text-xs font-medium text-gray-200 hover:border-accent hover:text-accent"
+                >
+                  Vorschau
+                </button>
+              </div>
+            </div>
+
             <div>
-              <label
-                className="block text-xs text-gray-400"
-                htmlFor="displayName"
-              >
+              <label className="block text-xs text-gray-400" htmlFor="displayName">
                 Anzeigename
               </label>
               <input
@@ -343,10 +384,7 @@ export default function MyPlayerProfilePage() {
             </div>
 
             <div>
-              <label
-                className="block text-xs text-gray-400"
-                htmlFor="region"
-              >
+              <label className="block text-xs text-gray-400" htmlFor="region">
                 Server / Region
               </label>
               <select
@@ -365,10 +403,7 @@ export default function MyPlayerProfilePage() {
             </div>
 
             <div>
-              <label
-                className="block text-xs text-gray-400"
-                htmlFor="languages"
-              >
+              <label className="block text-xs text-gray-400" htmlFor="languages">
                 Sprachen
               </label>
               <select
@@ -377,9 +412,9 @@ export default function MyPlayerProfilePage() {
                 className="mt-1 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-white outline-none focus:border-accent"
                 value={languages}
                 onChange={(e) => {
-                  const selected = Array.from(
-                    e.target.selectedOptions,
-                  ).map((o) => o.value);
+                  const selected = Array.from(e.target.selectedOptions).map(
+                    (o) => o.value,
+                  );
                   setLanguages(selected);
                 }}
               >
@@ -413,8 +448,6 @@ export default function MyPlayerProfilePage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
-            {/* Pro-Checkbox entfernt */}
-
             <div className="flex items-center gap-2 text-xs text-gray-300">
               <span>Sichtbarkeit:</span>
               <button
@@ -444,8 +477,8 @@ export default function MyPlayerProfilePage() {
 
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs text-gray-500">
-              Stelle sicher, dass Region &amp; Sprachen korrekt sind – sie
-              werden für Filter &amp; Matching verwendet.
+              Stelle sicher, dass Region &amp; Sprachen korrekt sind – sie werden
+              für Filter &amp; Matching verwendet.
             </div>
             <button
               type="submit"
@@ -469,7 +502,7 @@ export default function MyPlayerProfilePage() {
         </form>
       </div>
 
-      {/* --- Game-Profile --- */}
+      {/* Game-Profile */}
       <div className="card p-6">
         <h2 className="text-sm font-semibold text-gray-200">
           Game-Profile &amp; Ranks
@@ -494,20 +527,16 @@ export default function MyPlayerProfilePage() {
         <div className="mt-4 space-y-3">
           {gameProfiles.length === 0 && (
             <p className="text-[11px] text-gray-500">
-              Noch keine Game-Profile angelegt. Füge mindestens ein Spiel
-              hinzu, damit Teams dich finden können.
+              Noch keine Game-Profile angelegt. Füge mindestens ein Spiel hinzu,
+              damit Teams dich finden können.
             </p>
           )}
 
           {gameProfiles.map((gp, index) => {
             const roles =
-              gp.gameId && rolesByGame[gp.gameId]
-                ? rolesByGame[gp.gameId]
-                : [];
+              gp.gameId && rolesByGame[gp.gameId] ? rolesByGame[gp.gameId] : [];
             const ranks =
-              gp.gameId && ranksByGame[gp.gameId]
-                ? ranksByGame[gp.gameId]
-                : [];
+              gp.gameId && ranksByGame[gp.gameId] ? ranksByGame[gp.gameId] : [];
 
             return (
               <div
@@ -528,7 +557,6 @@ export default function MyPlayerProfilePage() {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-3">
-                  {/* Spiel */}
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium text-gray-300">
                       Spiel
@@ -556,7 +584,6 @@ export default function MyPlayerProfilePage() {
                     </select>
                   </div>
 
-                  {/* Hauptrolle */}
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium text-gray-300">
                       Hauptrolle
@@ -584,7 +611,6 @@ export default function MyPlayerProfilePage() {
                     </select>
                   </div>
 
-                  {/* Rank */}
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium text-gray-300">
                       Rank / Elo
@@ -646,6 +672,54 @@ export default function MyPlayerProfilePage() {
           </div>
         )}
       </div>
+
+      {/* ✅ 3.7 Preview Modal */}
+      {previewOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-3xl rounded-2xl border border-white/10 bg-black p-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">
+                Profil Vorschau
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(false)}
+                className="text-xs text-gray-300 hover:text-white"
+              >
+                Schließen
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-6">
+              <h1 className="text-3xl font-bold text-white">
+                {displayName || "Unbenannter Spieler"}
+              </h1>
+
+              {profileImageKey ? (
+                <img
+                  src={mediaUrl(profileImageKey)}
+                  alt="Profilbild"
+                  className="mt-4 h-28 w-28 rounded-full object-cover border border-white/10"
+                />
+              ) : (
+                <div className="mt-4 h-28 w-28 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-xs text-gray-400">
+                  Kein Profilbild
+                </div>
+              )}
+
+              <p className="mt-2 text-sm text-gray-400">
+                Region: {region || "keine Angabe"} · Semi-Competitive
+              </p>
+
+              <p className="mt-4 text-gray-300">
+                {bio && bio.trim().length > 0
+                  ? bio
+                  : "Dieser Spieler hat noch keine Beschreibung hinterlegt."}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

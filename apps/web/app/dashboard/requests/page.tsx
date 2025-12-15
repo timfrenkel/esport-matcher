@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -49,6 +50,7 @@ export default function DashboardRequestsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+  const router = useRouter();
 
   async function reload() {
     setLoading(true);
@@ -84,7 +86,14 @@ export default function DashboardRequestsPage() {
     setError(null);
 
     try {
-      await apiUpdateContactRequestStatus(id, status);
+      const res = await apiUpdateContactRequestStatus(id, status);
+
+      // ✅ direkt in den Chat nach dem Annehmen
+      if (status === "ACCEPTED" && res?.conversationId) {
+        router.push(`/dashboard/chats/${res.conversationId}`);
+        return;
+      }
+
       await reload();
     } catch (e) {
       if (e instanceof ApiError) setError(e.message);
@@ -93,6 +102,7 @@ export default function DashboardRequestsPage() {
       setActionBusyId(null);
     }
   }
+
 
   return (
     <div className="space-y-6">

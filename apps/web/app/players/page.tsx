@@ -40,7 +40,6 @@ export default function PlayersPage() {
   const [selectedRegion, setSelectedRegion] = useState<string>("");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("");
   const [selectedRankFilter, setSelectedRankFilter] = useState<string>("");
-
   const [rankOptions, setRankOptions] = useState<RankOption[]>([]);
 
   const [q, setQ] = useState<string>("");
@@ -50,6 +49,7 @@ export default function PlayersPage() {
 
   const [data, setData] =
     useState<PaginatedResult<PlayerProfileSummary> | null>(null);
+  const items = data?.items ?? [];
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -395,14 +395,16 @@ export default function PlayersPage() {
 
       {loading && <div className="text-sm text-gray-300">Lade Spieler.</div>}
 
+      
+
       {/* Ergebnisliste */}
-      {!loading && data && data.items.length === 0 && (
+      {!loading && items.length === 0 && (
         <div className="text-sm text-gray-400">
           Keine Spieler gefunden. Passe Filter oder Suchbegriff an.
         </div>
       )}
 
-      {!loading && data && data.items.length > 0 && (
+      {!loading && data && (data?.items?.length ?? 0) > 0 && (
         <section className="space-y-3">
           <div className="flex items-center justify-between text-xs text-gray-400">
             <span>
@@ -417,7 +419,7 @@ export default function PlayersPage() {
           </div>
 
           <div className="space-y-3">
-            {data.items.map((player) => (
+            {items.map((player) => (
               <article
                 key={player.id}
                 className="flex items-center justify-between gap-4 rounded-2xl border border-border/70 bg-black/50 px-4 py-3"
@@ -456,7 +458,7 @@ export default function PlayersPage() {
       )}
 
       {/* Pagination */}
-      {!loading && data && data.items.length > 0 && (
+      {!loading && items.length === 0 && data && (
         <footer className="flex items-center justify-between pt-2 text-xs text-gray-400">
           <div>
             Seite {page} von {totalPages} · {data.total} Spieler

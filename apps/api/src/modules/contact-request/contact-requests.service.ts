@@ -50,7 +50,23 @@ export class ContactRequestsService {
       },
     });
 
-    if (!fromUser) throw new NotFoundException("User not found");
+        if (!fromUser) throw new NotFoundException("User not found");
+        // 🔒 Backend-Guard: PLAYER ↔ TEAM erzwingen
+    if (fromUser.role === "PLAYER") {
+      if (!dto.targetTeamId || dto.targetPlayerId) {
+        throw new BadRequestException(
+          "Spieler dürfen nur Teams anfragen."
+        );
+      }
+    }
+
+    if (fromUser.role === "TEAM") {
+      if (!dto.targetPlayerId || dto.targetTeamId) {
+        throw new BadRequestException(
+          "Teams dürfen nur Spieler anfragen."
+        );
+      }
+    }
 
     // Ziel bestimmen
     let toUserId: string;
@@ -179,26 +195,65 @@ export class ContactRequestsService {
   }
 
   async updateStatus(userId: string, id: string, dto: UpdateContactRequestStatusDto) {
-    const request = await (this.prisma as any).contactRequest.findUnique({
-      where: { id },
-    });
-
-    if (!request) throw new NotFoundException("Kontaktanfrage nicht gefunden.");
-    if (request.toUserId !== userId) {
-      throw new ForbiddenException("Du darfst diese Anfrage nicht bearbeiten.");
-    }
-
     const raw = (dto.status ?? dto.newStatus) as string | undefined;
     if (!raw) throw new BadRequestException("status is required");
 
     const status = this.normalizeStatus(raw);
+    const pending = this.normalizeStatus("PENDING");
+    const accepted = this.normalizeStatus("ACCEPTED");
 
-    const updated = await (this.prisma as any).contactRequest.update({
-      where: { id },
-      data: { status },
+    return await this.prisma.$transaction(async (tx) => {
+      const request = await (tx as any).contactRequest.findUnique({
+        where: { id },
+      });
+
+      if (!request) throw new NotFoundException("Kontaktanfrage nicht gefunden.");
+      if (request.toUserId !== userId) {
+        throw new ForbiddenException("Du darfst diese Anfrage nicht bearbeiten.");
+      }
+
+      // ✅ Idempotenz: wenn schon ACCEPTED und nochmal ACCEPTED kommt → ok (Conversation sicherstellen)
+      if (request.status === accepted && status === accepted) {
+        const conv =
+          (await (tx as any).conversation.findUnique({
+            where: { contactRequestId: id },
+          })) ??
+          (await (tx as any).conversation.create({
+            data: { contactRequestId: id },
+          }));
+
+        return { ...request, conversationId: conv.id };
+      }
+
+      // ✅ Nur PENDING darf gewechselt werden (konsistent zu withdraw())
+      if (request.status !== pending) {
+        throw new BadRequestException(
+          "Nur PENDING-Anfragen können angenommen oder abgelehnt werden.",
+        );
+      }
+
+      const updated = await (tx as any).contactRequest.update({
+        where: { id },
+        data: { status },
+      });
+
+      // ✅ Bei ACCEPTED: Conversation erstellen (oder wiederverwenden)
+      let conversationId: string | null = null;
+
+      if (status === accepted) {
+        const conv =
+          (await (tx as any).conversation.findUnique({
+            where: { contactRequestId: id },
+          })) ??
+          (await (tx as any).conversation.create({
+            data: { contactRequestId: id },
+          }));
+
+        conversationId = conv.id;
+      }
+
+      return { ...updated, conversationId };
     });
-
-    return updated;
   }
 
   // ✅ wird vom Controller gebraucht

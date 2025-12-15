@@ -54,6 +54,7 @@ model User {
   notifications           Notification[]
   contactRequestsSent     ContactRequest[] @relation("ContactRequestsFrom")
   contactRequestsReceived ContactRequest[] @relation("ContactRequestsTo")
+  messagesSent            Message[]
 }
 
 model PlayerProfile {
@@ -86,8 +87,8 @@ model PlayerProfile {
   // Präferenzen für gesuchte Teams (optional)
   lookingForRole  String?
   lookingForLevel String?
-
-  visibility ProfileVisibility @default(PUBLIC)
+  profileImageKey String?
+  visibility      ProfileVisibility @default(PUBLIC)
 
   gameProfiles PlayerGameProfile[]
   clips        Clip[]
@@ -106,6 +107,9 @@ model TeamProfile {
 
   userId String @unique
   user   User   @relation(fields: [userId], references: [id])
+
+  profileImageKey String?
+  bannerImageKey  String?
 
   name        String
   tag         String?
@@ -309,6 +313,8 @@ model ContactRequest {
   fromUserId String
   fromUser   User   @relation("ContactRequestsFrom", fields: [fromUserId], references: [id])
 
+  conversation Conversation?
+
   // Empfänger (User des Ziel-Profils)
   toUserId String
   toUser   User   @relation("ContactRequestsTo", fields: [toUserId], references: [id])
@@ -333,6 +339,32 @@ model ContactRequest {
   @@index([gameId])
   @@index([targetPlayerId])
   @@index([targetTeamId])
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contactRequestId String         @unique
+  contactRequest   ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+
+  messages Message[]
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  senderId String
+  sender   User   @relation(fields: [senderId], references: [id])
+
+  content String
+
+  @@index([conversationId, createdAt])
 }
 
 model Clip {

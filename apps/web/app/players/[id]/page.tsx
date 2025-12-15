@@ -2,9 +2,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 
-
+import { apiFetch, PlayerProfile, mediaUrl } from "../../../lib/api";
 import QuickContactRequestButton from "@/components/QuickContactRequestButton";
-import { apiFetch, PlayerProfile } from "../../../lib/api";
 
 interface PageProps {
   params: { id: string };
@@ -38,6 +37,18 @@ export default async function PlayerPublicPage({ params }: PageProps) {
       <h1 className="text-3xl font-bold">
         {player.displayName || "Unbenannter Spieler"}
       </h1>
+
+      {player.profileImageKey ? (
+        <img
+          src={mediaUrl((player as any).profileImageKey)}
+          alt="Profilbild"
+          className="mt-4 h-28 w-28 rounded-full object-cover border border-white/10"
+        />
+      ) : (
+        <div className="mt-4 h-28 w-28 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-xs text-gray-400">
+          Kein Profilbild
+        </div>
+      )}
 
       <p className="mt-2 text-sm text-gray-400">
         Region: {player.region || "keine Angabe"} ·{" "}
