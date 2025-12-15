@@ -95,6 +95,20 @@ export function MainNav() {
           >
             Dashboard
           </Link>
+
+          {/* ✅ neu: Anfragen */}
+          <Link
+            href="/dashboard/requests"
+            className={classNames(
+              "px-2 py-1 transition",
+              isActive("/dashboard/requests")
+                ? "text-[#00eaff] border-b border-[#00eaff]"
+                : "hover:text-white"
+            )}
+          >
+            Anfragen
+          </Link>
+
           <Link
             href="/players"
             className={classNames(

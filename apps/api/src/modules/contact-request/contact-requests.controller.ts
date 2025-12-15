@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -20,11 +21,8 @@ import { UpdateContactRequestStatusDto } from "./dto/update-contact-request-stat
 @UseGuards(JwtAuthGuard)
 @Controller("contact-requests")
 export class ContactRequestsController {
-  constructor(
-    private readonly contactRequestsService: ContactRequestsService,
-  ) {}
+  constructor(private readonly contactRequestsService: ContactRequestsService) {}
 
-  // POST /api/contact-requests
   @Post()
   create(
     @CurrentUser() user: CurrentUserPayload,
@@ -33,19 +31,16 @@ export class ContactRequestsController {
     return this.contactRequestsService.create(user.sub, dto);
   }
 
-  // GET /api/contact-requests/incoming
   @Get("incoming")
   getIncoming(@CurrentUser() user: CurrentUserPayload) {
     return this.contactRequestsService.getIncoming(user.sub);
   }
 
-  // GET /api/contact-requests/outgoing
   @Get("outgoing")
   getOutgoing(@CurrentUser() user: CurrentUserPayload) {
     return this.contactRequestsService.getOutgoing(user.sub);
   }
 
-  // PATCH /api/contact-requests/:id
   @Patch(":id")
   updateStatus(
     @CurrentUser() user: CurrentUserPayload,
@@ -53,5 +48,13 @@ export class ContactRequestsController {
     @Body() dto: UpdateContactRequestStatusDto,
   ) {
     return this.contactRequestsService.updateStatus(user.sub, id, dto);
+  }
+
+  @Delete(":id")
+  withdraw(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+  ) {
+    return this.contactRequestsService.withdraw(user.sub, id);
   }
 }

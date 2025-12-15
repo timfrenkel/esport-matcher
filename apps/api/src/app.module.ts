@@ -6,6 +6,7 @@ import { GamesModule } from "./modules/games/games.module";
 import { PlayersModule } from "./modules/players/players.module";
 import { TeamsModule } from "./modules/teams/teams.module";
 import { MatchingModule } from "./modules/matching/matching.module";
+import { ContactRequestsModule } from "./modules/contact-request/contact-requests.module";
 
 @Module({
   imports: [
@@ -15,7 +16,8 @@ import { MatchingModule } from "./modules/matching/matching.module";
     PlayersModule,
     TeamsModule,
     HealthModule,
-    MatchingModule
+    MatchingModule,
+    ContactRequestsModule
   ],
   controllers: [],
   providers: []

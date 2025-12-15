@@ -1,5 +1,3 @@
-// apps/api/src/modules/contact-request/contact-requests.service.ts
-
 import {
   BadRequestException,
   ForbiddenException,
@@ -8,15 +6,31 @@ import {
 } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
 import { CreateContactRequestDto } from "./dto/create-contact-request.dto";
-import {
-  ContactRequestStatus,
-  UpdateContactRequestStatusDto,
-} from "./dto/update-contact-request-status.dto";
-import { UserRole } from "@prisma/client";
+import { UpdateContactRequestStatusDto } from "./dto/update-contact-request-status.dto";
+import { ContactRequestStatus as PrismaContactRequestStatus, UserRole } from "@prisma/client";
 
 @Injectable()
 export class ContactRequestsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  // Mappt "REJECTED" -> "DECLINED" wenn Prisma kein REJECTED kennt
+  private normalizeStatus(input: string): PrismaContactRequestStatus {
+    const values = Object.values(PrismaContactRequestStatus) as string[];
+
+    if (values.includes(input)) {
+      return input as PrismaContactRequestStatus;
+    }
+
+    // fallback mapping
+    if (input === "REJECTED" && values.includes("DECLINED")) {
+      return "DECLINED" as PrismaContactRequestStatus;
+    }
+    if (input === "DECLINED" && values.includes("REJECTED")) {
+      return "REJECTED" as PrismaContactRequestStatus;
+    }
+
+    throw new BadRequestException(`Invalid status: ${input}`);
+  }
 
   async create(userId: string, dto: CreateContactRequestDto) {
     const { targetPlayerId, targetTeamId, message } = dto;
@@ -36,9 +50,7 @@ export class ContactRequestsService {
       },
     });
 
-    if (!fromUser) {
-      throw new NotFoundException("User not found");
-    }
+    if (!fromUser) throw new NotFoundException("User not found");
 
     // Ziel bestimmen
     let toUserId: string;
@@ -75,12 +87,13 @@ export class ContactRequestsService {
       );
     }
 
-    // doppelte PENDING-Anfragen verhindern
+    // ✅ Spam-Schutz PRO SPIEL: gleiche Kombination nur einmal PENDING
     const existing = await (this.prisma as any).contactRequest.findFirst({
       where: {
         fromUserId: userId,
         toUserId,
         status: "PENDING",
+        gameId: dto.gameId,
         targetPlayerId: targetPlayerId ?? undefined,
         targetTeamId: targetTeamId ?? undefined,
       },
@@ -88,7 +101,7 @@ export class ContactRequestsService {
 
     if (existing) {
       throw new BadRequestException(
-        "Es existiert bereits eine offene Anfrage an dieses Profil.",
+        "Es existiert bereits eine offene Anfrage für dieses Spiel an dieses Profil.",
       );
     }
 
@@ -96,9 +109,13 @@ export class ContactRequestsService {
       data: {
         fromUserId: userId,
         toUserId,
+        gameId: dto.gameId,
         targetPlayerId: targetPlayerId ?? null,
         targetTeamId: targetTeamId ?? null,
         message: message ?? null,
+      },
+      include: {
+        game: true,
       },
     });
 
@@ -109,7 +126,6 @@ export class ContactRequestsService {
       direction: "OUTGOING",
     });
   }
-
   async getIncoming(userId: string) {
     const items = await (this.prisma as any).contactRequest.findMany({
       where: { toUserId: userId },
@@ -162,29 +178,47 @@ export class ContactRequestsService {
     );
   }
 
-  async updateStatus(
-    userId: string,
-    id: string,
-    dto: UpdateContactRequestStatusDto,
-  ) {
+  async updateStatus(userId: string, id: string, dto: UpdateContactRequestStatusDto) {
     const request = await (this.prisma as any).contactRequest.findUnique({
       where: { id },
     });
 
-    if (!request) {
-      throw new NotFoundException("Kontaktanfrage nicht gefunden.");
-    }
-
+    if (!request) throw new NotFoundException("Kontaktanfrage nicht gefunden.");
     if (request.toUserId !== userId) {
       throw new ForbiddenException("Du darfst diese Anfrage nicht bearbeiten.");
     }
 
+    const raw = (dto.status ?? dto.newStatus) as string | undefined;
+    if (!raw) throw new BadRequestException("status is required");
+
+    const status = this.normalizeStatus(raw);
+
     const updated = await (this.prisma as any).contactRequest.update({
       where: { id },
-      data: { status: dto.status },
+      data: { status },
     });
 
     return updated;
+  }
+
+  // ✅ wird vom Controller gebraucht
+  async withdraw(userId: string, id: string) {
+    const request = await (this.prisma as any).contactRequest.findUnique({
+      where: { id },
+    });
+
+    if (!request) throw new NotFoundException("Kontaktanfrage nicht gefunden.");
+    if (request.fromUserId !== userId) {
+      throw new ForbiddenException("Du darfst diese Anfrage nicht zurückziehen.");
+    }
+
+    const pending = this.normalizeStatus("PENDING");
+    if (request.status !== pending) {
+      throw new BadRequestException("Nur PENDING-Anfragen können zurückgezogen werden.");
+    }
+
+    await (this.prisma as any).contactRequest.delete({ where: { id } });
+    return { ok: true };
   }
 
   private mapToSummary(
@@ -220,12 +254,13 @@ export class ContactRequestsService {
     return {
       id: item.id,
       createdAt: item.createdAt,
-      status: item.status as ContactRequestStatus,
+      status: item.status,
       message: item.message ?? null,
       direction,
       otherType,
       otherProfileId,
-      otherName,
+      otherDisplayName: otherName,
+
       target: targetPlayer
         ? {
             type: "PLAYER" as const,
@@ -233,12 +268,12 @@ export class ContactRequestsService {
             name: targetPlayer.displayName ?? "Spieler",
           }
         : targetTeam
-        ? {
-            type: "TEAM" as const,
-            profileId: targetTeam.id,
-            name: targetTeam.name ?? "Team",
-          }
-        : null,
+          ? {
+              type: "TEAM" as const,
+              profileId: targetTeam.id,
+              name: `${targetTeam.name ?? "Team"}${targetTeam.tag ? ` [${targetTeam.tag}]` : ""}`,
+            }
+          : null,
     };
   }
 }

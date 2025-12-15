@@ -491,21 +491,28 @@ export async function apiGetGameRanks(
 
 export async function apiCreateContactRequestForPlayer(
   targetPlayerId: string,
+  gameId: string,
   message?: string,
 ): Promise<ContactRequestSummary> {
   return apiFetch<ContactRequestSummary>("/contact-requests", {
     method: "POST",
-    body: JSON.stringify({ targetPlayerId, message }),
+    body: JSON.stringify({ targetPlayerId, gameId, message }),
   });
 }
 
 export async function apiCreateContactRequestForTeam(
   targetTeamId: string,
+  gameId: string,
   message?: string,
 ): Promise<ContactRequestSummary> {
   return apiFetch<ContactRequestSummary>("/contact-requests", {
     method: "POST",
-    body: JSON.stringify({ targetTeamId, message }),
+    body: JSON.stringify({ targetTeamId, gameId, message }),
+  });
+}
+export async function apiWithdrawContactRequest(id: string): Promise<void> {
+  await apiFetch<void>(`/contact-requests/${id}`, {
+    method: "DELETE",
   });
 }
 

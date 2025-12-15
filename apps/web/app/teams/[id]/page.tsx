@@ -1,6 +1,10 @@
-// apps/web/app/teams/[id]/page.tsx
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-import { apiFetch, TeamProfile } from "../../../lib/api";
+
+
+import QuickContactRequestButton from "@/components/QuickContactRequestButton";
+import { apiFetch } from "../../../lib/api";
 
 interface PageProps {
   params: { id: string };
@@ -8,6 +12,7 @@ interface PageProps {
 
 interface TeamGameProfileView {
   id: string;
+  gameId: string;
   gameName: string;
   primaryRoleName: string;
   level: string;
@@ -16,26 +21,20 @@ interface TeamGameProfileView {
 export default async function TeamPublicPage({ params }: PageProps) {
   const teamId = params.id;
 
-  // Team-Daten laden
   const team = await apiFetch<any>(`/teams/${teamId}`);
 
-  // Backend kann entweder teamGameProfiles oder gameProfiles senden
-  const rawProfiles: any[] =
-    team.teamGameProfiles ??
-    team.gameProfiles ??
-    [];
+  const rawProfiles: any[] = team.teamGameProfiles ?? team.gameProfiles ?? [];
 
   const gameProfiles: TeamGameProfileView[] = rawProfiles.map((gp: any) => ({
     id: gp.id,
-    // Spielname aus verschachteltem Objekt
-    gameName: gp.game?.name ?? "Unbekanntes Spiel",
-
-    // Primärrolle
-    primaryRoleName: gp.primaryRole?.name ?? "-",
-
-    // Level pro Spiel
-    level: gp.level ?? team.level ?? "-",
+    gameId: gp.gameId ?? gp.game?.id ?? "",
+    gameName: gp.game?.name ?? gp.gameName ?? "Unbekanntes Spiel",
+    primaryRoleName: gp.primaryRole?.name ?? gp.primaryRoleName ?? "-",
+    level: gp.level ?? gp.competitiveLevel ?? team.level ?? "-",
   }));
+
+  const rawBio = (team.description ?? team.bio ?? "").toString?.() ?? "";
+  const bio = rawBio.trim();
 
   return (
     <div className="p-6">
@@ -48,9 +47,7 @@ export default async function TeamPublicPage({ params }: PageProps) {
       </p>
 
       <p className="mt-4 text-gray-300">
-        {team.description?.trim?.().length
-          ? team.description
-          : "Dieses Team hat noch keine Beschreibung hinterlegt."}
+        {bio.length ? bio : "Dieses Team hat noch keine Beschreibung hinterlegt."}
       </p>
 
       <h2 className="text-xl font-semibold mt-6">Spiele & Rollen</h2>
@@ -62,10 +59,24 @@ export default async function TeamPublicPage({ params }: PageProps) {
       ) : (
         <ul className="mt-2 space-y-2">
           {gameProfiles.map((gp) => (
-            <li key={gp.id} className="bg-gray-800 p-3 rounded text-sm">
-              <strong>{gp.gameName}</strong>
-              <div>Primärrolle: {gp.primaryRoleName}</div>
-              <div>Level: {gp.level}</div>
+            <li
+              key={gp.id}
+              className="bg-gray-800 p-3 rounded text-sm flex items-start justify-between gap-3"
+            >
+              <div>
+                <strong>{gp.gameName}</strong>
+                <div>Primärrolle: {gp.primaryRoleName}</div>
+                <div>Level: {gp.level}</div>
+              </div>
+
+              <QuickContactRequestButton
+                targetType="TEAM"
+                targetId={teamId}
+                gameId={gp.gameId}
+                gameName={gp.gameName}
+                roleName={gp.primaryRoleName}
+                level={gp.level}
+              />
             </li>
           ))}
         </ul>

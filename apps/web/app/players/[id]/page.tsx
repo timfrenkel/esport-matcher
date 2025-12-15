@@ -1,5 +1,9 @@
-// apps/web/app/players/[id]/page.tsx
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
+
+
+import QuickContactRequestButton from "@/components/QuickContactRequestButton";
 import { apiFetch, PlayerProfile } from "../../../lib/api";
 
 interface PageProps {
@@ -8,6 +12,7 @@ interface PageProps {
 
 interface GameProfileView {
   id: string;
+  gameId: string;
   gameName: string;
   primaryRoleName: string;
   rank: string | null;
@@ -16,24 +21,15 @@ interface GameProfileView {
 export default async function PlayerPublicPage({ params }: PageProps) {
   const playerId = params.id;
 
-  // Lädt: GET /api/players/:id
   const player = await apiFetch<PlayerProfile>(`/players/${playerId}`);
 
-  // Backend kann gameProfiles mit unterschiedlicher Struktur liefern:
-  // - gp.gameName / gp.primaryRoleName (flach)
-  // - gp.game?.name / gp.primaryRole?.name (verschachtelt)
   const rawGameProfiles: any[] = (player as any).gameProfiles ?? [];
 
   const gameProfiles: GameProfileView[] = rawGameProfiles.map((gp: any) => ({
     id: gp.id,
-    gameName:
-      gp.gameName ??
-      gp.game?.name ??
-      "Unbekanntes Spiel",
-    primaryRoleName:
-      gp.primaryRoleName ??
-      gp.primaryRole?.name ??
-      "-",
+    gameId: gp.gameId ?? gp.game?.id ?? "",
+    gameName: gp.gameName ?? gp.game?.name ?? "Unbekanntes Spiel",
+    primaryRoleName: gp.primaryRoleName ?? gp.primaryRole?.name ?? "-",
     rank: gp.rank ?? null,
   }));
 
@@ -63,10 +59,24 @@ export default async function PlayerPublicPage({ params }: PageProps) {
       ) : (
         <ul className="mt-2 space-y-2">
           {gameProfiles.map((gp) => (
-            <li key={gp.id} className="bg-gray-800 p-3 rounded text-sm">
-              <strong>{gp.gameName}</strong>
-              <div>Rolle: {gp.primaryRoleName}</div>
-              <div>Rank: {gp.rank ?? "-"}</div>
+            <li
+              key={gp.id}
+              className="bg-gray-800 p-3 rounded text-sm flex items-start justify-between gap-3"
+            >
+              <div>
+                <strong>{gp.gameName}</strong>
+                <div>Rolle: {gp.primaryRoleName}</div>
+                <div>Rank: {gp.rank ?? "-"}</div>
+              </div>
+
+              <QuickContactRequestButton
+                targetType="PLAYER"
+                targetId={playerId}
+                gameId={gp.gameId}
+                gameName={gp.gameName}
+                roleName={gp.primaryRoleName}
+                rank={gp.rank}
+              />
             </li>
           ))}
         </ul>

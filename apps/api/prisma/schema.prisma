@@ -144,6 +144,8 @@ model Game {
   playerGameProfiles PlayerGameProfile[]
   teamGameProfiles   TeamGameProfile[]
 
+  contactRequests ContactRequest[]
+
   // Back-Relation zu GameRank
   ranks         GameRank[]
   openPositions OpenPosition[]
@@ -249,6 +251,7 @@ model TeamGameProfile {
 //
 
 // Team schreibt eine konkrete Position aus: z. B. "League of Legends - Jungle - EUW"
+
 model OpenPosition {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
@@ -310,15 +313,26 @@ model ContactRequest {
   toUserId String
   toUser   User   @relation("ContactRequestsTo", fields: [toUserId], references: [id])
 
-  // Kontext: auf welches Profil bezieht sich die Anfrage?
+  // ✅ NEU: pro Spiel deduplizieren
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  // Ziel (genau eins davon gesetzt)
   targetPlayerId String?
   targetPlayer   PlayerProfile? @relation("ContactRequestsToPlayer", fields: [targetPlayerId], references: [id])
 
   targetTeamId String?
   targetTeam   TeamProfile? @relation("ContactRequestsToTeam", fields: [targetTeamId], references: [id])
 
+  status ContactRequestStatus @default(PENDING)
+
   message String?
-  status  ContactRequestStatus @default(PENDING)
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([gameId])
+  @@index([targetPlayerId])
+  @@index([targetTeamId])
 }
 
 model Clip {
